@@ -38,6 +38,8 @@ class AgentResponse(BaseModel):
 
 
 class DeviceInfo(BaseModel):
+    model_config = {"arbitrary_types_allowed": True}
+
     device_id: str
     connected_at: float
     last_ping: float
