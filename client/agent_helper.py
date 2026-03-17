@@ -488,6 +488,17 @@ class AgentClient:
                 if msg_type == "ping":
                     await self.ws.send(json.dumps({"type": "pong", "time": time.time()}))
 
+                elif msg_type == "pairing_key":
+                    # 显示配对密钥
+                    pairing_key = data.get("pairing_key")
+                    device_id = data.get("device_id")
+                    logger.info("=" * 50)
+                    logger.info(f"🔐 配对密钥已生成！")
+                    logger.info(f"   设备ID: {device_id}")
+                    logger.info(f"   配对密钥: {pairing_key}")
+                    logger.info(f"   将此密钥提供给主控端进行配对")
+                    logger.info("=" * 50)
+
                 elif msg_type == "exec":
                     # 执行指令
                     req_id = data.get("req_id")

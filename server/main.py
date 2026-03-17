@@ -21,6 +21,12 @@ import uvicorn
 SERVER_AGENT_TOKEN = "ah_server_token_change_in_production"  # Agent 调用 Token
 LINUX_DEVICE_TOKEN = "ah_device_token_change_in_production"  # Linux 客户端 Token
 
+# ============== 配对管理 ==============
+# device_id -> pairing_key 映射
+pairing_keys: Dict[str, str] = {}
+# controller_ws -> controlled_device_id 映射
+controller_sessions: Dict[WebSocket, str] = {}
+
 # ============== 数据模型 ==============
 
 class AgentRequest(BaseModel):
@@ -65,6 +71,20 @@ def verify_agent_token(credentials: HTTPAuthorizationCredentials = Depends(secur
 def verify_device_token(token: str) -> bool:
     """验证 Linux 客户端 Token"""
     return token == LINUX_DEVICE_TOKEN
+
+
+def generate_pairing_key() -> str:
+    """生成配对密钥（8位字母数字）"""
+    import secrets
+    import string
+    return ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(8))
+
+
+def verify_pairing(device_id: str, pairing_key: str) -> bool:
+    """验证配对密钥"""
+    if device_id not in pairing_keys:
+        return False
+    return pairing_keys[device_id] == pairing_key
 
 
 # ============== FastAPI 应用 ==============
@@ -162,6 +182,17 @@ async def linux_websocket(websocket: WebSocket):
 
         print(f"📱 设备上线: {device_id}")
 
+        # 生成并发送配对密钥
+        pairing_key = generate_pairing_key()
+        pairing_keys[device_id] = pairing_key
+        await websocket.send_json({
+            "type": "pairing_key",
+            "device_id": device_id,
+            "pairing_key": pairing_key,
+            "msg": f"Your pairing key: {pairing_key}"
+        })
+        print(f"🔑 设备 {device_id} 配对密钥: {pairing_key}")
+
         # 保持连接，处理心跳和结果返回
         while True:
             try:
@@ -216,6 +247,132 @@ async def linux_websocket(websocket: WebSocket):
                     future.set_exception(Exception("Device disconnected"))
             del connected_devices[device_id]
             print(f"🗑️ 设备注销: {device_id}")
+
+
+# ============== WebSocket 路由 (主控端连接) ==============
+
+@app.websocket("/ws/controller")
+async def controller_websocket(websocket: WebSocket):
+    """主控端 WebSocket 连接入口 - 控制其他设备"""
+    await websocket.accept()
+    controlled_device_id: Optional[str] = None
+    controller_id: Optional[str] = None
+
+    try:
+        # 第一步：接收配对消息
+        raw_msg = await websocket.receive_text()
+        msg = json.loads(raw_msg)
+
+        if msg.get("type") != "pair":
+            await websocket.send_json({"type": "error", "msg": "First message must be pair"})
+            await websocket.close()
+            return
+
+        device_id = msg.get("device_id")
+        pairing_key = msg.get("pairing_key")
+        controller_id = msg.get("controller_id", f"controller-{uuid.uuid4().hex[:8]}")
+
+        if not device_id or not pairing_key:
+            await websocket.send_json({"type": "error", "msg": "Missing device_id or pairing_key"})
+            await websocket.close()
+            return
+
+        # 验证配对密钥
+        if not verify_pairing(device_id, pairing_key):
+            await websocket.send_json({"type": "error", "msg": "Invalid pairing key or device not found"})
+            await websocket.close()
+            return
+
+        # 检查被控设备是否在线
+        if device_id not in connected_devices:
+            await websocket.send_json({"type": "error", "msg": f"Device {device_id} is offline"})
+            await websocket.close()
+            return
+
+        controlled_device_id = device_id
+        controller_sessions[websocket] = controlled_device_id
+
+        await websocket.send_json({
+            "type": "paired",
+            "controller_id": controller_id,
+            "device_id": controlled_device_id,
+            "msg": f"Successfully paired with {controlled_device_id}"
+        })
+
+        print(f"🎮 主控端 {controller_id} 连接到 {controlled_device_id}")
+
+        # 保持连接，处理指令
+        while True:
+            try:
+                raw_msg = await asyncio.wait_for(
+                    websocket.receive_text(),
+                    timeout=60.0
+                )
+                msg = json.loads(raw_msg)
+                msg_type = msg.get("type")
+
+                if msg_type == "ping":
+                    await websocket.send_json({"type": "pong", "time": time.time()})
+
+                elif msg_type == "exec":
+                    # 转发指令到被控设备
+                    req_id = msg.get("req_id", str(uuid.uuid4()))
+                    action = msg.get("action")
+                    params = msg.get("params", {})
+
+                    target_device = connected_devices.get(controlled_device_id)
+                    if not target_device:
+                        await websocket.send_json({
+                            "type": "error",
+                            "req_id": req_id,
+                            "msg": f"Device {controlled_device_id} disconnected"
+                        })
+                        continue
+
+                    # 创建 Future 等待结果
+                    future = asyncio.get_event_loop().create_future()
+                    target_device.pending_requests[req_id] = future
+
+                    # 发送指令到被控设备
+                    await target_device.websocket.send_json({
+                        "type": "exec",
+                        "req_id": req_id,
+                        "action": action,
+                        "params": params
+                    })
+
+                    # 等待结果（超时30秒）
+                    try:
+                        result = await asyncio.wait_for(future, timeout=30.0)
+                        await websocket.send_json({
+                            "type": "result",
+                            "req_id": req_id,
+                            "data": result.get("data") or result
+                        })
+                    except asyncio.TimeoutError:
+                        await websocket.send_json({
+                            "type": "error",
+                            "req_id": req_id,
+                            "msg": "Request timeout"
+                        })
+                    finally:
+                        if req_id in target_device.pending_requests:
+                            del target_device.pending_requests[req_id]
+
+            except asyncio.TimeoutError:
+                try:
+                    await websocket.send_json({"type": "ping"})
+                except:
+                    break
+
+    except WebSocketDisconnect:
+        print(f"🎮 主控端断开: {controller_id}")
+    except Exception as e:
+        print(f"❌ 主控端 {controller_id} 异常: {e}")
+    finally:
+        if websocket in controller_sessions:
+            del controller_sessions[websocket]
+            print(f"🗑️ 主控端注销: {controller_id}")
 
 
 # ============== HTTP API 路由 (Agent 调用) ==============

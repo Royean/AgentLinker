@@ -37,7 +37,7 @@ python main.py
 
 服务端默认监听 `0.0.0.0:8080`。
 
-### 2. 部署 Linux 客户端
+### 2. 部署 Linux 客户端（被控端）
 
 在目标 Linux 主机上执行：
 
@@ -74,7 +74,42 @@ sudo systemctl start agent_helper
 sudo systemctl enable agent_helper
 ```
 
-### 3. Agent 调用
+启动后，客户端会自动生成**配对密钥**，在日志中显示：
+
+```
+==================================================
+🔐 配对密钥已生成！
+   设备ID: my-server-01
+   配对密钥: XK9M2P7Q
+   将此密钥提供给主控端进行配对
+==================================================
+```
+
+### 3. 主控端连接（Client 配对）
+
+在另一台机器上，使用主控端客户端连接：
+
+```bash
+cd client
+python3 controller_client.py <device_id> <pairing_key> [server_url]
+```
+
+示例：
+
+```bash
+python3 controller_client.py my-server-01 XK9M2P7Q ws://localhost:8080/ws/controller
+```
+
+配对成功后，进入交互式命令行：
+
+```
+[my-server-01]> shell df -h
+[my-server-01]> info
+[my-server-01]> files /etc
+[my-server-01]> processes
+```
+
+### 4. Agent HTTP API 调用（可选）
 
 ```python
 import requests
@@ -169,7 +204,8 @@ agent-helper/
 │   ├── main.py          # FastAPI 主程序
 │   └── requirements.txt # Python 依赖
 ├── client/               # Linux 客户端
-│   ├── agent_helper.py  # 客户端主程序
+│   ├── agent_helper.py  # 被控端客户端
+│   ├── controller_client.py  # 主控端客户端（新增）
 │   ├── requirements.txt # Python 依赖
 │   └── config.json.example # 配置模板
 ├── scripts/              # 部署脚本
