@@ -1,27 +1,44 @@
-# Agent Helper Linux
+# AgentLinker
 
-一套轻量、高权限、内网穿透、无GUI、服务化的远程接入系统，让任何 AI Agent 可以跨网、安全、高权限控制 Linux 主机。
+🤖 **跨平台 AI Agent 远程控制系统**
 
-## 架构
+一套轻量、高权限、内网穿透、跨平台的远程接入系统，让任何 AI Agent 可以跨网、安全、高权限控制 Linux、macOS、Windows 主机。
+
+## ✨ 特性
+
+- 🖥️ **跨平台支持** - Linux、macOS、Windows 全支持
+- 📦 **一键安装** - 安装包形式，快速部署
+- 🎮 **一对多控制** - 一台主机可控制多台远程设备
+- 🔐 **安全配对** - 动态配对密钥，持久化绑定
+- 🌐 **内网穿透** - 无需公网 IP，主动连接服务端
+- 🔒 **TLS 加密** - 全程加密传输
+- 📊 **实时状态** - 设备在线/离线状态实时同步
+
+## 🏗️ 架构
 
 ```
-AI Agent 端
-     ↓（HTTP API 调用）
-云端服务端（中转 + 鉴权）
-     ↓（WebSocket 长连接）
-Linux 客户端（root 权限、systemd 后台）
-     ↓（执行系统操作）
-Linux 主机
+┌─────────────┐      HTTP/WebSocket      ┌──────────────────┐
+│  AI Agent   │ ◄──────────────────────► │   云端服务端     │
+│  (主控端)   │                          │  (中转 + 鉴权)   │
+└─────────────┘                          └──────────────────┘
+                                                ▲
+                                                │ WebSocket
+                                                ▼
+                                         ┌──────────────┐
+                                         │  Linux 客户端 │
+                                         │  macOS 客户端 │
+                                         │  Windows 客户端│
+                                         └──────────────┘
+                                                │
+                                                ▼
+                                         ┌──────────────┐
+                                         │   目标主机    │
+                                         └──────────────┘
 ```
 
-- Linux 客户端主动连服务端 → 内网穿透
-- Agent 不直接连 Linux → 安全
-- 全程 TLS 加密
-- 指令异步执行、异步回包
+## 🚀 快速开始
 
-## 快速开始
-
-### 1. 启动服务端
+### 1. 部署服务端
 
 ```bash
 cd server
@@ -31,107 +48,77 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-# 启动
+# 启动服务端
 python main.py
 ```
 
-服务端默认监听 `0.0.0.0:8080`。
+服务端默认监听 `0.0.0.0:8080`
 
-### 2. 部署 Linux 客户端（被控端）
+### 2. 安装被控端客户端
 
-在目标 Linux 主机上执行：
+#### Linux/macOS
 
 ```bash
-# 使用一键安装脚本
+# 一键安装
 curl -fsSL https://your-server.com/install.sh | sudo bash
-
-# 或者手动安装
-sudo bash scripts/install.sh
 ```
 
-安装完成后编辑配置文件：
+#### Windows
 
-```bash
-sudo nano /etc/agent_helper/config.json
-```
+下载安装程序运行（开发中）
 
-配置内容：
+### 3. 配置客户端
+
+编辑配置文件 `/etc/agentlinker/config.json`:
 
 ```json
 {
   "device_id": "my-server-01",
+  "device_name": "阿里云主机",
   "token": "YOUR_DEVICE_TOKEN",
-  "server_url": "wss://your-server.com/ws/linux",
-  "reconnect_interval": 5,
-  "heartbeat_interval": 30
+  "server_url": "wss://your-server.com/ws/client"
 }
 ```
 
-启动服务：
+### 4. 启动客户端
 
 ```bash
-sudo systemctl start agent_helper
-sudo systemctl enable agent_helper
+# Linux (systemd)
+sudo systemctl start agentlinker
+sudo systemctl enable agentlinker
+
+# 查看日志
+sudo journalctl -u agentlinker -f
 ```
 
-启动后，客户端会自动生成**配对密钥**，在日志中显示：
+启动后，日志中会显示配对密钥：
 
 ```
 ==================================================
 🔐 配对密钥已生成！
-   设备ID: my-server-01
-   配对密钥: XK9M2P7Q
+   设备 ID: my-server-01
+   配对密钥：XK9M2P7Q
    将此密钥提供给主控端进行配对
 ==================================================
 ```
 
-### 3. 主控端连接（Client 配对）
-
-在另一台机器上，使用主控端客户端连接：
+### 5. 主控端连接
 
 ```bash
-cd client
-python3 controller_client.py <device_id> <pairing_key> [server_url]
+# 启动主控端
+agentlinker --mode controller --server ws://your-server.com/ws/controller
 ```
 
-示例：
-
-```bash
-python3 controller_client.py my-server-01 XK9M2P7Q ws://localhost:8080/ws/controller
-```
-
-配对成功后，进入交互式命令行：
+进入交互式命令行：
 
 ```
-[my-server-01]> shell df -h
-[my-server-01]> info
-[my-server-01]> files /etc
-[my-server-01]> processes
+[controller]> pair my-server-01 XK9M2P7Q
+[controller]> list
+[controller]> exec my-server-01 df -h
+[controller]> info my-server-01
 ```
 
-### 4. Agent HTTP API 调用（可选）
-
-```python
-import requests
-
-url = "http://localhost:8080/api/v1/agent/send"
-headers = {"Authorization": "Bearer SERVER_AGENT_TOKEN"}
-
-data = {
-    "device_id": "my-server-01",
-    "req_id": "req-001",
-    "action": "shell.exec",
-    "params": {
-        "cmd": "df -h",
-        "timeout": 10
-    }
-}
-
-resp = requests.post(url, json=data, headers=headers)
-print(resp.json())
-```
-
-## 支持的指令
+## 📋 支持的指令
 
 | Action | 描述 | 参数 |
 |--------|------|------|
@@ -139,170 +126,100 @@ print(resp.json())
 | `shell.exec` | 执行 shell 命令 | `cmd`, `timeout`, `cwd` |
 | `file.list` | 列目录 | `path` |
 | `file.read` | 读文件 | `path`, `offset`, `limit` |
-| `file.write` | 写文件 | `path`, `content`, `encoding`, `append` |
+| `file.write` | 写文件 | `path`, `content`, `encoding` |
 | `file.delete` | 删除文件/目录 | `path`, `recursive` |
 | `process.list` | 进程列表 | - |
 | `process.kill` | 杀死进程 | `pid`, `signal` |
 | `service.operate` | 系统服务操作 | `service`, `operation` |
 
-## API 文档
+## 🎮 主控端命令
 
-### Agent → 服务端
+| 命令 | 描述 | 示例 |
+|------|------|------|
+| `pair` | 配对设备 | `pair device-id XK9M2P7Q` |
+| `unpair` | 解除配对 | `unpair device-id` |
+| `list` | 列出已配对设备 | `list` |
+| `scan` | 扫描在线设备 | `scan` |
+| `exec` | 执行命令 | `exec device-id ls -l` |
+| `info` | 获取设备信息 | `info device-id` |
 
-**POST** `/api/v1/agent/send`
-
-请求头：
-
-```
-Authorization: Bearer SERVER_AGENT_TOKEN
-Content-Type: application/json
-```
-
-请求体：
-
-```json
-{
-  "device_id": "linux-123456",
-  "req_id": "uuid-xxxx",
-  "action": "shell.exec",
-  "params": {
-    "cmd": "ls -l /root",
-    "timeout": 10
-  }
-}
-```
-
-响应：
-
-```json
-{
-  "code": 0,
-  "msg": "ok",
-  "req_id": "uuid-xxxx",
-  "data": {
-    "success": true,
-    "returncode": 0,
-    "stdout": "...",
-    "stderr": ""
-  }
-}
-```
-
-### 获取在线设备列表
-
-**GET** `/api/v1/devices`
-
-### 健康检查
-
-**GET** `/health`
-
-## 目录结构
-
-```
-agent-helper/
-├── server/               # 服务端
-│   ├── main.py          # FastAPI 主程序
-│   └── requirements.txt # Python 依赖
-├── client/               # Linux 客户端
-│   ├── agent_helper.py  # 被控端客户端
-│   ├── controller_client.py  # 主控端客户端（新增）
-│   ├── requirements.txt # Python 依赖
-│   └── config.json.example # 配置模板
-├── scripts/              # 部署脚本
-│   ├── install.sh       # 一键安装脚本
-│   ├── agent_helper.service # systemd 配置
-│   └── dev-run.sh       # 开发快速启动
-├── examples/             # 调用示例
-│   ├── python_example.py
-│   ├── curl_example.sh
-│   └── node_example.js
-└── docs/                 # 文档
-    └── API.md
-```
-
-## 安全配置
+## 🔐 安全配置
 
 ### Token 配置
 
-服务端使用环境变量或修改代码配置 Token：
+服务端使用环境变量配置 Token：
 
 ```bash
 export SERVER_AGENT_TOKEN="your_secure_token"
 export LINUX_DEVICE_TOKEN="device_token"
 ```
 
-生产环境建议使用：
-- 随机生成的长 Token（32位以上）
-- HTTPS/WSS 加密传输
+### 配对机制
+
+1. 设备启动后生成动态配对密钥（8 位，1 小时过期）
+2. 主控端使用配对密钥连接设备
+3. 配对成功后持久化绑定
+4. 支持一对多配对（一个控制器可配对多个设备）
+
+### 生产环境建议
+
+- 使用随机生成的长 Token（32 位以上）
+- 使用 HTTPS/WSS 加密传输
+- 配置防火墙限制服务端访问 IP
 - 定期更换 Token
 
-### 权限控制
+## 📁 目录结构
 
-- Linux 客户端以 root 运行，可执行任意系统操作
-- 服务端通过 Token 鉴权，区分 Agent 调用和设备连接
-- 建议配合防火墙限制服务端访问 IP
-
-## 开发调试
-
-```bash
-# 快速启动（开发模式）
-./scripts/dev-run.sh server   # 启动服务端
-./scripts/dev-run.sh client   # 启动客户端（需要 sudo）
-
-# 或使用手动方式
-cd server
-source venv/bin/activate
-python main.py
-
-# 客户端（另一个终端）
-sudo python3 client/agent_helper.py
+```
+AgentLinker/
+├── server/               # 服务端
+│   ├── main.py          # FastAPI 主程序
+│   └── requirements.txt
+├── client/               # 客户端
+│   ├── core/            # 跨平台核心逻辑
+│   ├── controller.py    # 主控端客户端
+│   ├── cli.py           # 命令行工具
+│   └── requirements.txt
+├── installer/            # 安装包
+│   ├── linux/
+│   │   └── install.sh   # Linux 安装脚本
+│   ├── macos/
+│   └── windows/
+├── examples/             # 调用示例
+├── docs/                 # 文档
+└── tests/                # 测试
 ```
 
-## 生产部署
+## 🧪 测试
 
-### 服务端部署
-
-1. 使用 systemd 管理服务
-2. 配置 Nginx 反向代理（SSL）
-3. 配置防火墙
+使用两台机器进行测试：
 
 ```bash
-# Nginx 配置示例
-location / {
-    proxy_pass http://127.0.0.1:8080;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-}
+# 机器 A (服务端 + 被控端)
+# 1. 启动服务端
+cd server && python main.py
+
+# 2. 安装被控端
+sudo bash installer/linux/install.sh
+
+# 机器 B (主控端)
+# 启动主控端
+agentlinker --mode controller --server ws://机器 A-IP:8080/ws/controller
 ```
 
-### 客户端部署
+## 🛣️ 开发路线图
 
-```bash
-# 批量部署脚本
-for host in server1 server2 server3; do
-    ssh $host "curl -fsSL https://your-server.com/install.sh | sudo bash -s -- -t DEVICE_TOKEN -s wss://your-server.com/ws/linux"
-done
-```
+- [x] 跨平台核心架构
+- [x] 一对多控制
+- [x] Linux 安装脚本
+- [ ] macOS 安装包
+- [ ] Windows 安装包
+- [ ] Web 控制台
+- [ ] 设备分组管理
+- [ ] 批量指令下发
+- [ ] 操作审计日志
+- [ ] TLS/SSL 证书
 
-## 日志
-
-服务端日志：控制台输出（建议配置 systemd journal 或重定向到文件）
-
-客户端日志：`/var/log/agent_helper/agent_helper.log`
-
-查看日志：
-
-```bash
-# 服务端（如果使用 systemd）
-journalctl -u agent-helper-server -f
-
-# 客户端
-sudo tail -f /var/log/agent_helper/agent_helper.log
-```
-
-## 许可证
+## 📝 许可证
 
 MIT
