@@ -7,7 +7,8 @@
 ## ✨ 特性
 
 - 🖥️ **跨平台支持** - Linux、macOS、Windows 全支持
-- 📦 **一键安装** - 安装包形式，快速部署
+- 📦 **一键安装** - DMG 安装包 / Homebrew / 一键脚本
+- 🎨 **图形界面** - macOS 菜单栏应用，显示配对密钥
 - 🎮 **一对多控制** - 一台主机可控制多台远程设备
 - 🔐 **安全配对** - 动态配对密钥，持久化绑定
 - 🌐 **内网穿透** - 无需公网 IP，主动连接服务端
@@ -38,7 +39,32 @@
 
 ## 🚀 快速开始
 
-### 1. 部署服务端
+### 方式一：macOS 一键安装（最简单）
+
+```bash
+# 一键安装，自动创建应用程序
+curl -fsSL https://raw.githubusercontent.com/Royean/AgentLinker/master/install.sh | bash
+```
+
+安装后：
+1. 打开 `~/Applications/AgentLinker.app`
+2. 自动显示设备 ID 和配对密钥
+3. 点击"复制配对密钥"即可使用
+
+### 方式二：Homebrew 安装
+
+```bash
+# 安装
+brew install https://raw.githubusercontent.com/Royean/AgentLinker/master/packaging/homebrew/agentlinker.rb
+
+# 运行（图形界面）
+agentlinker --gui
+
+# 运行（后台服务）
+agentlinker --mode client
+```
+
+### 方式三：手动部署服务端
 
 ```bash
 cd server
@@ -53,19 +79,6 @@ python main.py
 ```
 
 服务端默认监听 `0.0.0.0:8080`
-
-### 2. 安装被控端客户端
-
-#### Linux/macOS
-
-```bash
-# 一键安装
-curl -fsSL https://your-server.com/install.sh | sudo bash
-```
-
-#### Windows
-
-下载安装程序运行（开发中）
 
 ### 3. 配置客户端
 
