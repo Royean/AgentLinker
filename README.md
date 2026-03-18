@@ -4,54 +4,44 @@
 
 一套轻量、高权限、内网穿透、跨平台的远程接入系统，让任何 AI Agent 可以跨网、安全、高权限控制 Linux、macOS、Windows 主机。
 
+[![Version](https://img.shields.io/github/v/release/Royean/AgentLinker)](https://github.com/Royean/AgentLinker/releases)
+[![License](https://img.shields.io/github/license/Royean/AgentLinker)](LICENSE)
+[![Stars](https://img.shields.io/github/stars/Royean/AgentLinker)](https://github.com/Royean/AgentLinker/stargazers)
+
+---
+
 ## ✨ 特性
 
 - 🖥️ **跨平台支持** - Linux、macOS、Windows 全支持
 - 📦 **一键安装** - DMG 安装包 / Homebrew / 一键脚本
-- 🎨 **图形界面** - macOS 菜单栏应用，显示配对密钥
+- 🎨 **现代化界面** - 深色模式 / 菜单栏应用 / 专业图标
 - 🎮 **一对多控制** - 一台主机可控制多台远程设备
 - 🔐 **安全配对** - 动态配对密钥，持久化绑定
 - 🌐 **内网穿透** - 无需公网 IP，主动连接服务端
-- 🔒 **TLS 加密** - 全程加密传输
-- 📊 **实时状态** - 设备在线/离线状态实时同步
+- 🔒 **实时状态** - 设备在线/离线状态实时同步
 
-## 🏗️ 架构
-
-```
-┌─────────────┐      HTTP/WebSocket      ┌──────────────────┐
-│  AI Agent   │ ◄──────────────────────► │   云端服务端     │
-│  (主控端)   │                          │  (中转 + 鉴权)   │
-└─────────────┘                          └──────────────────┘
-                                                ▲
-                                                │ WebSocket
-                                                ▼
-                                         ┌──────────────┐
-                                         │  Linux 客户端 │
-                                         │  macOS 客户端 │
-                                         │  Windows 客户端│
-                                         └──────────────┘
-                                                │
-                                                ▼
-                                         ┌──────────────┐
-                                         │   目标主机    │
-                                         └──────────────┘
-```
+---
 
 ## 🚀 快速开始
 
-### 方式一：macOS 一键安装（最简单）
+### 方式一：macOS 一键安装（最简单）⭐
+
+打开终端，复制粘贴：
 
 ```bash
-# 一键安装，自动创建应用程序
 curl -fsSL https://raw.githubusercontent.com/Royean/AgentLinker/master/install.sh | bash
 ```
 
-安装后：
+**安装后：**
 1. 打开 `~/Applications/AgentLinker.app`
-2. 自动显示设备 ID 和配对密钥
+2. 应用会自动启动并显示设备 ID 和配对密钥 ✅
 3. 点击"复制配对密钥"即可使用
 
-### 方式二：Homebrew 安装
+**就这么简单！不需要任何配置！**
+
+---
+
+### 方式二：Homebrew
 
 ```bash
 # 安装
@@ -60,9 +50,14 @@ brew install https://raw.githubusercontent.com/Royean/AgentLinker/master/packagi
 # 运行（图形界面）
 agentlinker --gui
 
+# 运行（菜单栏应用）
+agentlinker --menubar
+
 # 运行（后台服务）
 agentlinker --mode client
 ```
+
+---
 
 ### 方式三：手动部署服务端
 
@@ -80,56 +75,68 @@ python main.py
 
 服务端默认监听 `0.0.0.0:8080`
 
-### 3. 配置客户端
+---
 
-编辑配置文件 `/etc/agentlinker/config.json`:
+## 📱 客户端使用
 
-```json
-{
-  "device_id": "my-server-01",
-  "device_name": "阿里云主机",
-  "token": "YOUR_DEVICE_TOKEN",
-  "server_url": "wss://your-server.com/ws/client"
-}
-```
+### macOS 用户
 
-### 4. 启动客户端
+#### 图形界面应用
 
 ```bash
-# Linux (systemd)
-sudo systemctl start agentlinker
-sudo systemctl enable agentlinker
+# 打开应用
+open ~/Applications/AgentLinker.app
 
-# 查看日志
-sudo journalctl -u agentlinker -f
+# 或命令行启动
+python3 client/app.py
 ```
 
-启动后，日志中会显示配对密钥：
-
-```
-==================================================
-🔐 配对密钥已生成！
-   设备 ID: my-server-01
-   配对密钥：XK9M2P7Q
-   将此密钥提供给主控端进行配对
-==================================================
-```
-
-### 5. 主控端连接
+#### 菜单栏应用（推荐）
 
 ```bash
-# 启动主控端
-agentlinker --mode controller --server ws://your-server.com/ws/controller
+# 安装依赖
+pip install rumps
+
+# 启动菜单栏应用
+python3 client/menubar_app.py
 ```
 
-进入交互式命令行：
+菜单栏应用会显示在系统菜单栏，随时查看状态和复制配对密钥！
 
+---
+
+### Linux 用户
+
+```bash
+# 图形界面
+python3 client/app.py
+
+# 命令行
+python3 client/cli.py --mode client
 ```
-[controller]> pair my-server-01 XK9M2P7Q
+
+---
+
+## 🎮 控制器使用
+
+```bash
+# 启动控制器
+python3 client/controller.py --server ws://43.98.243.80:8080/ws/controller
+
+# 配对设备
+[controller]> pair <device_id> <pairing_key>
+
+# 执行命令
+[controller]> exec <device_id> uname -a
+
+# 获取信息
+[controller]> info <device_id>
+
+# 列出设备
 [controller]> list
-[controller]> exec my-server-01 df -h
-[controller]> info my-server-01
 ```
+
+---
 
 ## 📋 支持的指令
 
@@ -145,16 +152,47 @@ agentlinker --mode controller --server ws://your-server.com/ws/controller
 | `process.kill` | 杀死进程 | `pid`, `signal` |
 | `service.operate` | 系统服务操作 | `service`, `operation` |
 
-## 🎮 主控端命令
+---
 
-| 命令 | 描述 | 示例 |
-|------|------|------|
-| `pair` | 配对设备 | `pair device-id XK9M2P7Q` |
-| `unpair` | 解除配对 | `unpair device-id` |
-| `list` | 列出已配对设备 | `list` |
-| `scan` | 扫描在线设备 | `scan` |
-| `exec` | 执行命令 | `exec device-id ls -l` |
-| `info` | 获取设备信息 | `info device-id` |
+## 🎨 v2.1.0 新功能
+
+### 现代化界面
+- ✨ 全新的卡片式布局
+- 🌓 深色模式支持（自动检测系统主题）
+- 🎨 专业的应用图标
+- 📱 实时状态指示器
+
+### 菜单栏应用（macOS）
+- 📍 系统菜单栏图标
+- ⚡ 快速复制配对密钥
+- 🔔 通知支持
+- ▶️ 一键启动/停止
+
+### 用户体验优化
+- 📋 配对密钥自动复制
+- 🪟 窗口自动居中
+- 🎯 改进的按钮和菜单
+- ℹ️ 关于对话框
+
+---
+
+## 🏗️ 架构
+
+```
+┌─────────────────┐      WebSocket      ┌─────────────────┐
+│  控制器         │ ◄─────────────────► │   云端服务端     │
+│  (任何地方)     │    ws://server:8080    │  (中转 + 鉴权)   │
+└─────────────────┘                     └─────────────────┘
+                                               ▲
+                                               │ WebSocket
+                                               ▼
+                                        ┌──────────────┐
+                                        │  被控设备     │
+                                        │ Linux/macOS  │
+                                        └──────────────┘
+```
+
+---
 
 ## 🔐 安全配置
 
@@ -167,13 +205,6 @@ export SERVER_AGENT_TOKEN="your_secure_token"
 export LINUX_DEVICE_TOKEN="device_token"
 ```
 
-### 配对机制
-
-1. 设备启动后生成动态配对密钥（8 位，1 小时过期）
-2. 主控端使用配对密钥连接设备
-3. 配对成功后持久化绑定
-4. 支持一对多配对（一个控制器可配对多个设备）
-
 ### 生产环境建议
 
 - 使用随机生成的长 Token（32 位以上）
@@ -181,58 +212,74 @@ export LINUX_DEVICE_TOKEN="device_token"
 - 配置防火墙限制服务端访问 IP
 - 定期更换 Token
 
-## 📁 目录结构
+---
+
+## 📁 项目结构
 
 ```
 AgentLinker/
 ├── server/               # 服务端
-│   ├── main.py          # FastAPI 主程序
+│   ├── main.py          # FastAPI + WebSocket
 │   └── requirements.txt
 ├── client/               # 客户端
-│   ├── core/            # 跨平台核心逻辑
-│   ├── controller.py    # 主控端客户端
-│   ├── cli.py           # 命令行工具
-│   └── requirements.txt
-├── installer/            # 安装包
-│   ├── linux/
-│   │   └── install.sh   # Linux 安装脚本
+│   ├── app.py           # 🎨 图形界面客户端
+│   ├── menubar_app.py   # 📍 菜单栏应用 (macOS)
+│   ├── controller.py    # 🎮 主控端
+│   ├── cli.py           # 💻 命令行工具
+│   └── core/            # 🔧 核心逻辑
+├── packaging/            # 📦 打包工具
 │   ├── macos/
-│   └── windows/
-├── examples/             # 调用示例
-├── docs/                 # 文档
-└── tests/                # 测试
+│   └── homebrew/
+├── assets/               # 🖼️ 资源文件
+│   └── icon.png
+├── install.sh            # 🚀 一键安装
+├── README.md             # 📖 本文档
+├── CHANGELOG.md          # 📝 更新日志
+└── ROADMAP.md            # 🗺️ 路线图
 ```
 
-## 🧪 测试
+---
 
-使用两台机器进行测试：
+## 🛣️ 路线图
 
-```bash
-# 机器 A (服务端 + 被控端)
-# 1. 启动服务端
-cd server && python main.py
+### v2.1.0 (当前) ✅
+- [x] 现代化界面
+- [x] 深色模式
+- [x] 菜单栏应用
+- [x] 应用图标
 
-# 2. 安装被控端
-sudo bash installer/linux/install.sh
-
-# 机器 B (主控端)
-# 启动主控端
-agentlinker --mode controller --server ws://机器 A-IP:8080/ws/controller
-```
-
-## 🛣️ 开发路线图
-
-- [x] 跨平台核心架构
-- [x] 一对多控制
-- [x] Linux 安装脚本
-- [ ] macOS 安装包
-- [ ] Windows 安装包
-- [ ] Web 控制台
+### v2.2.0 (开发中)
+- [ ] 文件传输功能
+- [ ] 批量命令执行
+- [ ] 命令历史记录
 - [ ] 设备分组管理
-- [ ] 批量指令下发
+
+### v2.3.0 (计划)
+- [ ] TLS/SSL 加密
+- [ ] 设备证书认证
 - [ ] 操作审计日志
-- [ ] TLS/SSL 证书
+- [ ] Web 控制台
 
-## 📝 许可证
+---
 
-MIT
+## 📞 需要帮助？
+
+- 📖 [安装指南](INSTALL_GUIDE.md)
+- 📝 [更新日志](CHANGELOG.md)
+- 🗺️ [路线图](ROADMAP.md)
+- 🐛 [提交 Issue](https://github.com/Royean/AgentLinker/issues)
+- 💬 [讨论区](https://github.com/Royean/AgentLinker/discussions)
+
+---
+
+## 📄 许可证
+
+MIT License - 详见 [LICENSE](LICENSE) 文件
+
+---
+
+## 🎉 致谢
+
+感谢所有贡献者和用户！
+
+**Made with ❤️ by AgentLinker Team**
