@@ -123,8 +123,32 @@ class Executor:
             # 内存信息
             mem_info = {}
             if system == "Windows":
-                import ctypes
-                mem_info["note"] = "Windows memory info not implemented"
+                try:
+                    import ctypes
+                    kernel32 = ctypes.windll.kernel32
+                    kernel32.GlobalMemoryStatusEx.restype = ctypes.c_bool
+                    
+                    class MEMORYSTATUSEX(ctypes.Structure):
+                        _fields_ = [
+                            ("dwLength", ctypes.c_ulong),
+                            ("dwMemoryLoad", ctypes.c_ulong),
+                            ("ullTotalPhys", ctypes.c_ulonglong),
+                            ("ullAvailPhys", ctypes.c_ulonglong),
+                            ("ullTotalPageFile", ctypes.c_ulonglong),
+                            ("ullAvailPageFile", ctypes.c_ulonglong),
+                            ("ullTotalVirtual", ctypes.c_ulonglong),
+                            ("ullAvailVirtual", ctypes.c_ulonglong),
+                            ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+                        ]
+                    
+                    mem_status = MEMORYSTATUSEX()
+                    mem_status.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+                    if kernel32.GlobalMemoryStatusEx(ctypes.byref(mem_status)):
+                        mem_info["total"] = f"{mem_status.ullTotalPhys // 1024} kB"
+                        mem_info["available"] = f"{mem_status.ullAvailPhys // 1024} kB"
+                        mem_info["percent_used"] = mem_status.dwMemoryLoad
+                except:
+                    pass
             elif system == "Darwin":  # macOS
                 try:
                     import subprocess
@@ -209,18 +233,32 @@ class Executor:
             return {"success": False, "error": "Empty command"}
         
         try:
+            system = platform.system()
             print(f"执行命令：{cmd}")
             
-            shell = True if platform.system() != "Windows" else False
-            result = subprocess.run(
-                cmd,
-                shell=shell,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                cwd=working_dir,
-                env={**os.environ, "PYTHONIOENCODING": "utf-8"}
-            )
+            if system == "Windows":
+                # Windows 使用 PowerShell 或 cmd
+                shell_cmd = ["powershell", "-Command", cmd]
+                result = subprocess.run(
+                    shell_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    cwd=working_dir,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                    env={**os.environ, "PYTHONIOENCODING": "utf-8"}
+                )
+            else:
+                # Linux/macOS 使用 bash
+                result = subprocess.run(
+                    cmd,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    cwd=working_dir,
+                    env={**os.environ, "PYTHONIOENCODING": "utf-8"}
+                )
             
             return {
                 "success": result.returncode == 0,
