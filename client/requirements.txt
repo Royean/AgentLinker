@@ -3,6 +3,3 @@ websockets>=12.0
 
 # 可选：二维码生成
 qrcode[pil]>=7.0
-qrterminal>=1.7
-
-# 可选：局域网发现（标准库，无需额外安装）
