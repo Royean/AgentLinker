@@ -8,7 +8,9 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject var deviceManager: DeviceManager
     @EnvironmentObject var webSocketManager: WebSocketManager
+    @EnvironmentObject var authManager: AuthManager
     @State private var showingSettings = false
+    @State private var showingDeviceList = false
     
     var body: some View {
         VStack(spacing: 0) {
@@ -42,6 +44,13 @@ struct ContentView: View {
             SettingsView()
                 .environmentObject(deviceManager)
                 .environmentObject(webSocketManager)
+                .environmentObject(authManager)
+        }
+        .sheet(isPresented: $showingDeviceList) {
+            DeviceListView()
+                .environmentObject(deviceManager)
+                .environmentObject(webSocketManager)
+                .environmentObject(authManager)
         }
     }
     
@@ -78,11 +87,26 @@ struct ContentView: View {
             
             Spacer()
             
-            Button(action: { showingSettings = true }) {
-                Image(systemName: "gearshape")
-                    .font(.title3)
+            HStack(spacing: 8) {
+                Button(action: { showingDeviceList = true }) {
+                    Label("Devices", systemImage: "list.bullet")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                
+                Button(action: { showingSettings = true }) {
+                    Image(systemName: "gearshape")
+                        .font(.title3)
+                }
+                .buttonStyle(.plain)
+                
+                Button(action: handleLogout) {
+                    Image(systemName: "rectangle.portrait.and.arrow.right")
+                        .font(.title3)
+                }
+                .buttonStyle(.plain)
+                .help("Logout")
             }
-            .buttonStyle(.plain)
         }
     }
     
@@ -225,6 +249,12 @@ struct ContentView: View {
                 .fill(Color(NSColor.controlBackgroundColor))
         )
     }
+    
+    // MARK: - Actions
+    private func handleLogout() {
+        webSocketManager.disconnect()
+        authManager.logout()
+    }
 }
 
 // MARK: - Subviews
@@ -297,4 +327,5 @@ struct ActionButton: View {
     ContentView()
         .environmentObject(DeviceManager())
         .environmentObject(WebSocketManager())
+        .environmentObject(AuthManager())
 }

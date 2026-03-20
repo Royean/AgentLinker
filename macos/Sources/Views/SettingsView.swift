@@ -8,6 +8,7 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject var deviceManager: DeviceManager
     @EnvironmentObject var webSocketManager: WebSocketManager
+    @EnvironmentObject var authManager: AuthManager
     @Environment(\.dismiss) var dismiss
     
     @State private var deviceName: String = ""
@@ -18,6 +19,31 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section("Account") {
+                    if let user = authManager.currentUser {
+                        HStack {
+                            Image(systemName: "person.circle.fill")
+                                .font(.title2)
+                                .foregroundColor(.accentColor)
+                            
+                            VStack(alignment: .leading) {
+                                Text(user.name)
+                                    .font(.headline)
+                                Text(user.email)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            
+                            Spacer()
+                            
+                            Button("Sign Out", role: .destructive) {
+                                handleLogout()
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+                
                 Section("Device") {
                     TextField("Device Name", text: $deviceName)
                     
@@ -127,10 +153,17 @@ struct SettingsView: View {
             token: "ah_device_token_change_in_production"
         )
     }
+    
+    private func handleLogout() {
+        webSocketManager.disconnect()
+        authManager.logout()
+        dismiss()
+    }
 }
 
 #Preview {
     SettingsView()
         .environmentObject(DeviceManager())
         .environmentObject(WebSocketManager())
+        .environmentObject(AuthManager())
 }

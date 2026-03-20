@@ -6,37 +6,59 @@
 import Foundation
 import Starscream
 
+enum ConnectionState {
+    case disconnected
+    case connecting
+    case connected
+    case reconnecting
+    case failed
+}
+
 class WebSocketManager: ObservableObject, WebSocketDelegate {
     @Published var isConnected = false
+    @Published var connectionState: ConnectionState = .disconnected
     @Published var lastError: String?
+    @Published var lastMessage: String?
 
     private var socket: WebSocket?
     private let serverUrl: String
     private var reconnectTimer: Timer?
     private var heartbeatTimer: Timer?
     private var reconnectAttempts = 0
-    private let maxReconnectAttempts = 5
+    private let maxReconnectAttempts = 10
     private let heartbeatInterval: TimeInterval = 30
     private var currentDeviceId: String = ""
     private var currentDeviceName: String = ""
     private var currentToken: String = ""
+    private var messageHandler: ((String) -> Void)?
 
     init(serverUrl: String = "ws://43.98.243.80:8080/ws/client") {
         self.serverUrl = serverUrl
+    }
+    
+    func setMessageHandler(_ handler: @escaping (String) -> Void) {
+        self.messageHandler = handler
     }
 
     func connect(deviceId: String, deviceName: String, token: String) {
         self.currentDeviceId = deviceId
         self.currentDeviceName = deviceName
         self.currentToken = token
+        
+        DispatchQueue.main.async {
+            self.connectionState = .connecting
+        }
 
         guard let url = URL(string: serverUrl) else {
-            lastError = "Invalid server URL"
+            DispatchQueue.main.async {
+                self.lastError = "Invalid server URL"
+                self.connectionState = .failed
+            }
             return
         }
 
         var request = URLRequest(url: url)
-        request.timeoutInterval = 5
+        request.timeoutInterval = 10
 
         socket = WebSocket(request: request)
         socket?.delegate = self
@@ -47,15 +69,21 @@ class WebSocketManager: ObservableObject, WebSocketDelegate {
         switch event {
         case .connected:
             print("✅ WebSocket connected")
-            isConnected = true
-            reconnectAttempts = 0
-            lastError = nil
+            DispatchQueue.main.async {
+                self.isConnected = true
+                self.connectionState = .connected
+                self.reconnectAttempts = 0
+                self.lastError = nil
+            }
             registerDevice(deviceId: currentDeviceId, deviceName: currentDeviceName, token: currentToken)
 
         case .disconnected(let reason, _):
             let errorMsg = reason
             print("❌ WebSocket disconnected: \(errorMsg)")
-            isConnected = false
+            DispatchQueue.main.async {
+                self.isConnected = false
+                self.connectionState = .disconnected
+            }
             stopHeartbeat()
             scheduleReconnect()
 
@@ -73,6 +101,11 @@ class WebSocketManager: ObservableObject, WebSocketDelegate {
 
         case .viabilityChanged(let isViable):
             print("Viability changed: \(isViable)")
+            if !isViable {
+                DispatchQueue.main.async {
+                    self.connectionState = .reconnecting
+                }
+            }
 
         case .reconnectSuggested(let shouldReconnect):
             print("Reconnect suggested: \(shouldReconnect)")
@@ -82,13 +115,19 @@ class WebSocketManager: ObservableObject, WebSocketDelegate {
 
         case .peerClosed:
             print("Peer closed connection")
-            isConnected = false
+            DispatchQueue.main.async {
+                self.isConnected = false
+                self.connectionState = .disconnected
+            }
 
         case .error(let error):
             let errorMsg = error?.localizedDescription ?? "unknown"
             print("WebSocket error: \(errorMsg)")
-            lastError = errorMsg
-            isConnected = false
+            DispatchQueue.main.async {
+                self.lastError = errorMsg
+                self.isConnected = false
+                self.connectionState = .failed
+            }
 
         default:
             break
@@ -101,7 +140,10 @@ class WebSocketManager: ObservableObject, WebSocketDelegate {
         reconnectTimer = nil
         socket?.disconnect()
         socket = nil
-        isConnected = false
+        DispatchQueue.main.async {
+            self.isConnected = false
+            self.connectionState = .disconnected
+        }
     }
     
     func send(message: WebSocketMessage) {
@@ -151,22 +193,33 @@ class WebSocketManager: ObservableObject, WebSocketDelegate {
     
     private func scheduleReconnect() {
         guard reconnectAttempts < maxReconnectAttempts else {
-            lastError = "Max reconnect attempts reached"
+            DispatchQueue.main.async {
+                self.lastError = "Max reconnect attempts reached. Please check your connection."
+                self.connectionState = .failed
+            }
             return
         }
 
         reconnectAttempts += 1
-        let delay = Double(reconnectAttempts) * 2.0 // Exponential backoff
+        let delay = min(Double(reconnectAttempts) * 2.0, 30.0) // Exponential backoff, max 30s
+
+        DispatchQueue.main.async {
+            self.connectionState = .reconnecting
+        }
 
         reconnectTimer?.invalidate()
         reconnectTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
-            print("🔄 Reconnecting (attempt \(self?.reconnectAttempts ?? 0)/\(self?.maxReconnectAttempts ?? 5))...")
+            print("🔄 Reconnecting (attempt \(self?.reconnectAttempts ?? 0)/\(self?.maxReconnectAttempts ?? 10))...")
             self?.connect(deviceId: self?.currentDeviceId ?? "", deviceName: self?.currentDeviceName ?? "", token: self?.currentToken ?? "")
         }
     }
     
     private func handleMessage(_ string: String) {
         print("📥 Received: \(string)")
+        
+        DispatchQueue.main.async {
+            self.lastMessage = string
+        }
 
         guard let data = string.data(using: .utf8) else { return }
 
@@ -179,18 +232,27 @@ class WebSocketManager: ObservableObject, WebSocketDelegate {
                 startHeartbeat()
             case "pong":
                 print("🏓 Pong received from server")
+                // Reset reconnect attempts on successful pong
+                reconnectAttempts = 0
             case "pairing_key":
                 print("🔑 Pairing key received: \(response.pairing_key ?? "N/A")")
             case "error":
                 print("❌ Server error: \(response.msg ?? "unknown")")
-                lastError = response.msg
+                DispatchQueue.main.async {
+                    self.lastError = response.msg
+                }
             case "command":
                 print("📊 Command received")
+                // Forward to message handler if set
+                messageHandler?(string)
             default:
                 print("ℹ️ Unknown message type: \(response.type)")
+                messageHandler?(string)
             }
         } catch {
             print("Failed to parse message: \(error)")
+            // Try to handle as raw JSON
+            messageHandler?(string)
         }
     }
 

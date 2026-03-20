@@ -8,6 +8,7 @@ import SwiftUI
 struct MenuBarView: View {
     @EnvironmentObject var deviceManager: DeviceManager
     @EnvironmentObject var webSocketManager: WebSocketManager
+    @EnvironmentObject var authManager: AuthManager
     @Environment(\.openWindow) var openWindow
     
     var body: some View {
@@ -73,21 +74,52 @@ struct MenuBarView: View {
             
             Divider()
             
+            // User Info
+            if let user = authManager.currentUser {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(user.name)
+                        .font(.caption)
+                        .fontWeight(.medium)
+                    Text(user.email)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                
+                Divider()
+            }
+            
             // Actions
             Button("Open Main Window") {
                 openWindow(id: "main")
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
+            .frame(maxWidth: .infinity)
+            
+            Button(action: handleLogout) {
+                Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .frame(maxWidth: .infinity)
+            
+            Divider()
             
             Button("Quit AgentLinker") {
                 NSApp.terminate(nil)
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
+            .frame(maxWidth: .infinity)
         }
         .padding()
         .frame(width: 250)
+    }
+    
+    private func handleLogout() {
+        webSocketManager.disconnect()
+        authManager.logout()
     }
 }
 
@@ -95,4 +127,5 @@ struct MenuBarView: View {
     MenuBarView()
         .environmentObject(DeviceManager())
         .environmentObject(WebSocketManager())
+        .environmentObject(AuthManager())
 }
