@@ -5,6 +5,7 @@
 
 import Foundation
 import Combine
+import AppKit
 
 class DeviceManager: ObservableObject {
     @Published var deviceId: String = ""
@@ -97,7 +98,7 @@ class ConfigManager {
             if let name = defaults.string(forKey: deviceNameKey), !name.isEmpty {
                 return name
             }
-            let newName = Host.current().localizedName ?? "Unknown Mac"
+            let newName = Host.current().localizedName()
             defaults.set(newName, forKey: deviceNameKey)
             return newName
         }
@@ -129,7 +130,8 @@ struct Host {
     }
     
     func localizedName() -> String {
-        if let name = ProcessInfo.processInfo.hostName, !name.isEmpty {
+        let name = ProcessInfo.processInfo.hostName
+        if !name.isEmpty {
             return name
         }
         return "Unknown Mac"

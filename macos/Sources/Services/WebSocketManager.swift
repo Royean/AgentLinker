@@ -6,83 +6,97 @@
 import Foundation
 import Starscream
 
-class WebSocketManager: ObservableObject {
+class WebSocketManager: ObservableObject, WebSocketDelegate {
     @Published var isConnected = false
     @Published var lastError: String?
-    
+
     private var socket: WebSocket?
     private let serverUrl: String
     private var reconnectTimer: Timer?
+    private var heartbeatTimer: Timer?
     private var reconnectAttempts = 0
     private let maxReconnectAttempts = 5
-    
+    private let heartbeatInterval: TimeInterval = 30
+    private var currentDeviceId: String = ""
+    private var currentDeviceName: String = ""
+    private var currentToken: String = ""
+
     init(serverUrl: String = "ws://43.98.243.80:8080/ws/client") {
         self.serverUrl = serverUrl
     }
-    
+
     func connect(deviceId: String, deviceName: String, token: String) {
+        self.currentDeviceId = deviceId
+        self.currentDeviceName = deviceName
+        self.currentToken = token
+
         guard let url = URL(string: serverUrl) else {
             lastError = "Invalid server URL"
             return
         }
-        
+
         var request = URLRequest(url: url)
         request.timeoutInterval = 5
-        
+
         socket = WebSocket(request: request)
-        
-        socket?.onEvent = { [weak self] event in
-            switch event {
-            case .connected:
-                print("✅ WebSocket connected")
-                self?.isConnected = true
-                self?.reconnectAttempts = 0
-                self?.lastError = nil
-                
-                // 注册设备
-                self?.registerDevice(deviceId: deviceId, deviceName: deviceName, token: token)
-                
-            case .disconnected(let error, _):
-                print("❌ WebSocket disconnected: \(error?.localizedDescription ?? "unknown")")
-                self?.isConnected = false
-                self?.scheduleReconnect(deviceId: deviceId, deviceName: deviceName, token: token)
-                
-            case .text(let string):
-                self?.handleMessage(string)
-                
-            case .binary(let data):
-                print("Received binary data: \(data.count) bytes")
-                
-            case .ping(let data):
-                print("Ping received: \(data?.count ?? 0) bytes")
-                
-            case .pong(let data):
-                print("Pong received: \(data?.count ?? 0) bytes")
-                
-            case .viabilityChanged(let isViable):
-                print("Viability changed: \(isViable)")
-                
-            case .reconnectSuggested(let shouldReconnect):
-                print("Reconnect suggested: \(shouldReconnect)")
-                if shouldReconnect {
-                    self?.scheduleReconnect(deviceId: deviceId, deviceName: deviceName, token: token)
-                }
-                
-            case .peerClosed:
-                print("Peer closed connection")
-                self?.isConnected = false
-                
-            case .error(let error):
-                print("WebSocket error: \(error?.localizedDescription ?? "unknown")")
-                self?.lastError = error?.localizedDescription
-                self?.isConnected = false
-            }
-        }
-        
+        socket?.delegate = self
         socket?.connect()
+    }
+
+    func didReceive(event: WebSocketEvent, client: WebSocketClient) {
+        switch event {
+        case .connected:
+            print("✅ WebSocket connected")
+            isConnected = true
+            reconnectAttempts = 0
+            lastError = nil
+            registerDevice(deviceId: currentDeviceId, deviceName: currentDeviceName, token: currentToken)
+
+        case .disconnected(let reason, _):
+            let errorMsg = reason
+            print("❌ WebSocket disconnected: \(errorMsg)")
+            isConnected = false
+            stopHeartbeat()
+            scheduleReconnect()
+
+        case .text(let string):
+            handleMessage(string)
+
+        case .binary(let data):
+            print("Received binary data: \(data.count) bytes")
+
+        case .ping(let data):
+            print("Ping received: \(data?.count ?? 0) bytes")
+
+        case .pong(let data):
+            print("Pong received: \(data?.count ?? 0) bytes")
+
+        case .viabilityChanged(let isViable):
+            print("Viability changed: \(isViable)")
+
+        case .reconnectSuggested(let shouldReconnect):
+            print("Reconnect suggested: \(shouldReconnect)")
+            if shouldReconnect {
+                scheduleReconnect()
+            }
+
+        case .peerClosed:
+            print("Peer closed connection")
+            isConnected = false
+
+        case .error(let error):
+            let errorMsg = error?.localizedDescription ?? "unknown"
+            print("WebSocket error: \(errorMsg)")
+            lastError = errorMsg
+            isConnected = false
+
+        default:
+            break
+        }
     }
     
     func disconnect() {
+        stopHeartbeat()
         reconnectTimer?.invalidate()
         reconnectTimer = nil
         socket?.disconnect()
@@ -112,50 +126,105 @@ class WebSocketManager: ObservableObject {
         let register = DeviceRegister(
             device_id: deviceId,
             device_name: deviceName,
-            device_type: "mac",
-            os: ProcessInfo.processInfo.operatingSystemVersionString,
             token: token
         )
-        send(message: register)
+        sendRegister(message: register)
+    }
+
+    private func sendRegister(message: DeviceRegister) {
+        guard isConnected, let socket = socket else {
+            lastError = "Not connected"
+            return
+        }
+
+        do {
+            let encoder = JSONEncoder()
+            let data = try encoder.encode(message)
+            if let jsonString = String(data: data, encoding: .utf8) {
+                socket.write(string: jsonString)
+                print("📤 Sent: \(jsonString)")
+            }
+        } catch {
+            lastError = "Failed to encode message: \(error.localizedDescription)"
+        }
     }
     
-    private func scheduleReconnect(deviceId: String, deviceName: String, token: String) {
+    private func scheduleReconnect() {
         guard reconnectAttempts < maxReconnectAttempts else {
             lastError = "Max reconnect attempts reached"
             return
         }
-        
+
         reconnectAttempts += 1
         let delay = Double(reconnectAttempts) * 2.0 // Exponential backoff
-        
+
         reconnectTimer?.invalidate()
         reconnectTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
             print("🔄 Reconnecting (attempt \(self?.reconnectAttempts ?? 0)/\(self?.maxReconnectAttempts ?? 5))...")
-            self?.connect(deviceId: deviceId, deviceName: deviceName, token: token)
+            self?.connect(deviceId: self?.currentDeviceId ?? "", deviceName: self?.currentDeviceName ?? "", token: self?.currentToken ?? "")
         }
     }
     
     private func handleMessage(_ string: String) {
         print("📥 Received: \(string)")
-        
+
         guard let data = string.data(using: .utf8) else { return }
-        
+
         do {
-            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                // 处理服务器消息
-                if let action = json["action"] as? String {
-                    switch action {
-                    case "device.registered":
-                        print("✅ Device registered successfully")
-                    case "command.result":
-                        print("📊 Command result received")
-                    default:
-                        break
-                    }
-                }
+            let response = try JSONDecoder().decode(ServerResponse.self, from: data)
+
+            switch response.type {
+            case "registered":
+                print("✅ Device registered successfully")
+                startHeartbeat()
+            case "pong":
+                print("🏓 Pong received from server")
+            case "pairing_key":
+                print("🔑 Pairing key received: \(response.pairing_key ?? "N/A")")
+            case "error":
+                print("❌ Server error: \(response.msg ?? "unknown")")
+                lastError = response.msg
+            case "command":
+                print("📊 Command received")
+            default:
+                print("ℹ️ Unknown message type: \(response.type)")
             }
         } catch {
             print("Failed to parse message: \(error)")
+        }
+    }
+
+    // MARK: - Heartbeat
+    private func startHeartbeat() {
+        heartbeatTimer?.invalidate()
+        heartbeatTimer = Timer.scheduledTimer(withTimeInterval: heartbeatInterval, repeats: true) { [weak self] _ in
+            self?.sendPing()
+        }
+        // 立即发送第一个 ping
+        sendPing()
+    }
+
+    private func stopHeartbeat() {
+        heartbeatTimer?.invalidate()
+        heartbeatTimer = nil
+    }
+
+    private func sendPing() {
+        guard isConnected, let socket = socket else { return }
+
+        let pingMessage: [String: Any] = [
+            "type": "ping",
+            "time": Date().timeIntervalSince1970
+        ]
+
+        do {
+            let data = try JSONSerialization.data(withJSONObject: pingMessage)
+            if let jsonString = String(data: data, encoding: .utf8) {
+                socket.write(string: jsonString)
+                print("💓 Heartbeat sent")
+            }
+        } catch {
+            print("Failed to send heartbeat: \(error)")
         }
     }
 }
