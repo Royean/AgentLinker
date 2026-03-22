@@ -32,24 +32,19 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 小时
 DATABASE_PATH = os.getenv("DATABASE_PATH", "./agentlinker.db")
 
 # ============== 密码加密 ==============
-import bcrypt
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # ============== JWT 工具 ==============
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """验证密码"""
-    try:
-        return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
-    except Exception:
-        return False
+    return pwd_context.verify(plain_password, hashed_password)
 
 
 def get_password_hash(password: str) -> str:
     """密码哈希"""
-    salt = bcrypt.gensalt()
-    hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
-    return hashed.decode('utf-8')
+    return pwd_context.hash(password)
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
