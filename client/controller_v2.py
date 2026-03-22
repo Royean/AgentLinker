@@ -66,7 +66,9 @@ class ControllerClient:
             self.ws = await websockets.connect(
                 self.server_url,
                 ping_interval=None,
-                close_timeout=10
+                close_timeout=10,
+                # 直连本机中继时勿走系统代理，否则可能 502 或需 python-socks
+                proxy=None,
             )
             
             await self.ws.send(json.dumps({
@@ -186,9 +188,7 @@ class ControllerClient:
         print(f"已解除配对：{device_id}")
     
     async def send_command(self, device_id: str, action: str, params: dict = None, timeout: int = 30) -> dict:
-        """发送指令到设备"""
-        if device_id not in self.connected_devices:
-            return {"success": False, "error": f"Device {device_id} not connected"}
+        """发送指令到设备（服务端可关闭配对；本地不强制要求先 pair）"""
         
         req_id = str(uuid.uuid4())
         future = asyncio.get_event_loop().create_future()

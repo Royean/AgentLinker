@@ -40,8 +40,10 @@ class Device {
       'platform': platform,
       'is_online': isOnline,
       'pairing_key': pairingKey,
-      'connected_at': connectedAt?.millisecondsSinceEpoch ~/ 1000,
-      'last_ping': lastPing?.millisecondsSinceEpoch ~/ 1000,
+      'connected_at':
+          connectedAt != null ? connectedAt!.millisecondsSinceEpoch ~/ 1000 : null,
+      'last_ping':
+          lastPing != null ? lastPing!.millisecondsSinceEpoch ~/ 1000 : null,
     };
   }
 

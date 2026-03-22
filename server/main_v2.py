@@ -9,6 +9,7 @@ AgentLinker Server v2.1 - 安全增强版
 
 import asyncio
 import json
+import os
 import time
 import uuid
 import ssl
@@ -42,6 +43,14 @@ UPLOAD_DIR = "/tmp/agentlinker_uploads"
 MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024  # 10GB
 CHUNK_SIZE = 1024 * 1024  # 1MB
 
+# 设备配对：默认关闭，任意已连接控制器可直接 exec/传文件（仅适合可信局域网）。
+# 生产或公网部署请设置环境变量 AGENTLINKER_REQUIRE_PAIRING=1
+REQUIRE_DEVICE_PAIRING = os.environ.get("AGENTLINKER_REQUIRE_PAIRING", "").lower() in (
+    "1",
+    "true",
+    "yes",
+)
+
 # ============== 数据模型 ==============
 
 class DeviceInfo:
@@ -68,6 +77,12 @@ class ControllerInfo:
         self.last_ping = last_ping
         self.websocket = websocket
         self.paired_devices: Set[str] = set()
+
+
+def controller_allowed_for_device(controller_id: str, device_info: DeviceInfo) -> bool:
+    if not REQUIRE_DEVICE_PAIRING:
+        return True
+    return controller_id in device_info.paired_controllers
 
 
 class AuditLogEntry(BaseModel):
@@ -502,7 +517,7 @@ async def handle_controller_messages(controller_id: str):
                 
                 device_info = connected_devices[device_id]
                 
-                if controller_id not in device_info.paired_controllers:
+                if not controller_allowed_for_device(controller_id, device_info):
                     await controller_info.websocket.send_json({
                         "type": "error",
                         "req_id": req_id,
@@ -527,9 +542,10 @@ async def handle_controller_messages(controller_id: str):
                          target_type="device", target_id=device_id,
                          details={"action": action, "req_id": req_id})
                 
-                # 等待结果
+                # 等待结果（sms.inbox 可能触发系统权限弹窗，需更长等待）
+                exec_timeout = 90.0 if action == "sms.inbox" else 30.0
                 try:
-                    result = await asyncio.wait_for(future, timeout=30)
+                    result = await asyncio.wait_for(future, timeout=exec_timeout)
                     await controller_info.websocket.send_json({
                         "type": "result",
                         "req_id": req_id,
@@ -561,7 +577,7 @@ async def handle_controller_messages(controller_id: str):
                 
                 device_info = connected_devices[device_id]
                 
-                if controller_id not in device_info.paired_controllers:
+                if not controller_allowed_for_device(controller_id, device_info):
                     await controller_info.websocket.send_json({
                         "type": "error",
                         "msg": "Not paired with this device"
@@ -708,13 +724,22 @@ def verify_device_token(token: str) -> bool:
 
 def main():
     """启动服务器"""
-    # 创建日志目录
-    Path("/var/log/agentlinker").mkdir(parents=True, exist_ok=True)
-    
+    global AUDIT_LOG_FILE
+    log_root = Path("/var/log/agentlinker")
+    try:
+        log_root.mkdir(parents=True, exist_ok=True)
+    except PermissionError:
+        log_root = Path(__file__).resolve().parent / "logs"
+        log_root.mkdir(parents=True, exist_ok=True)
+    AUDIT_LOG_FILE = str(log_root / "audit.log")
+
     print(f"🚀 AgentLinker Server v2.1.0")
     print(f"   监听地址：0.0.0.0:8080")
     print(f"   TLS: {'启用' if TLS_ENABLED else '禁用'}")
     print(f"   审计日志：{'启用' if AUDIT_LOG_ENABLED else '禁用'}")
+    print(
+        f"   设备配对：{'必需 (AGENTLINKER_REQUIRE_PAIRING)' if REQUIRE_DEVICE_PAIRING else '关闭（控制器无需 pair 即可控制已连接设备）'}"
+    )
     
     # 启动服务器
     uvicorn.run(

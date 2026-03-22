@@ -10,7 +10,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+# 仅忽略仓库根目录的 Python lib，勿使用 lib/（会误伤 mobile/lib）
+/lib/
 lib64/
 parts/
 sdist/
@@ -22,10 +23,14 @@ wheels/
 
 # 虚拟环境
 venv/
+.venv/
 ENV/
 env/
 *_venv/
 client_test_venv/
+
+# 本机无 /var/log 权限时 main_v2 写入的审计日志
+server/logs/
 
 # Flutter/Dart
 mobile/build/
@@ -36,6 +41,9 @@ mobile/.packages
 mobile/.pub-cache/
 mobile/.pub/
 mobile/pubspec.lock
+
+# macOS
+.DS_Store
 
 # IDE
 .vscode/
