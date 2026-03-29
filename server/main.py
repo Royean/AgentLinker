@@ -52,6 +52,7 @@ class DeviceInfo(BaseModel):
     websocket: Optional[WebSocket] = None
     pending_requests: Dict[str, asyncio.Future] = {}
     paired_controllers: Set[str] = set()
+    auto_accept: bool = False  # 是否允许任意控制器控制
 
 
 class ControllerInfo(BaseModel):
@@ -150,6 +151,7 @@ async def client_websocket(websocket: WebSocket):
         device_name = msg.get("device_name", device_id)
         platform = msg.get("platform", "Unknown")
         token = msg.get("token")
+        auto_accept = msg.get("auto_accept", False)  # 是否允许任意控制器控制
 
         if not device_id or not token:
             await websocket.send_json({"type": "error", "msg": "Missing device_id or token"})
@@ -171,7 +173,8 @@ async def client_websocket(websocket: WebSocket):
             last_ping=now,
             websocket=websocket,
             pending_requests={},
-            paired_controllers=set()
+            paired_controllers=set(),
+            auto_accept=auto_accept
         )
 
         # 如果设备已存在，关闭旧连接
@@ -197,21 +200,31 @@ async def client_websocket(websocket: WebSocket):
 
         print(f"📱 设备上线：{device_id} ({platform})")
 
-        # 生成配对密钥
-        pairing_key = generate_pairing_key()
-        pairing_keys[device_id] = {
-            "key": pairing_key,
-            "expires_at": now + 3600,
-            "created_at": now
-        }
+        if auto_accept:
+            # 自动接受模式，不需要配对密钥
+            print(f"🔓 设备 {device_id} 自动接受模式，无需配对密钥")
+            await websocket.send_json({
+                "type": "pairing_key",
+                "device_id": device_id,
+                "pairing_key": "AUTO_ACCEPT",
+                "msg": "Auto-accept mode enabled, no pairing key required"
+            })
+        else:
+            # 需要配对密钥
+            pairing_key = generate_pairing_key()
+            pairing_keys[device_id] = {
+                "key": pairing_key,
+                "expires_at": now + 3600,
+                "created_at": now
+            }
 
-        await websocket.send_json({
-            "type": "pairing_key",
-            "device_id": device_id,
-            "pairing_key": pairing_key,
-            "msg": f"Your pairing key: {pairing_key}"
-        })
-        print(f"🔑 设备 {device_id} 配对密钥：{pairing_key}")
+            await websocket.send_json({
+                "type": "pairing_key",
+                "device_id": device_id,
+                "pairing_key": pairing_key,
+                "msg": f"Your pairing key: {pairing_key}"
+            })
+            print(f"🔑 设备 {device_id} 配对密钥：{pairing_key}")
 
         # 保持连接，处理心跳和结果返回
         while True:
@@ -396,14 +409,6 @@ async def controller_websocket(websocket: WebSocket):
                     action = msg.get("action")
                     params = msg.get("params", {})
 
-                    if device_id not in controller_info.paired_devices:
-                        await websocket.send_json({
-                            "type": "error",
-                            "req_id": req_id,
-                            "msg": f"Device {device_id} not paired"
-                        })
-                        continue
-
                     if device_id not in connected_devices:
                         await websocket.send_json({
                             "type": "error",
@@ -413,6 +418,15 @@ async def controller_websocket(websocket: WebSocket):
                         continue
 
                     target_device = connected_devices[device_id]
+
+                    # 检查是否有权限控制设备
+                    if not target_device.auto_accept and device_id not in controller_info.paired_devices:
+                        await websocket.send_json({
+                            "type": "error",
+                            "req_id": req_id,
+                            "msg": f"Device {device_id} not paired and not auto-accept mode"
+                        })
+                        continue
                     future = asyncio.get_event_loop().create_future()
                     target_device.pending_requests[req_id] = future
 
