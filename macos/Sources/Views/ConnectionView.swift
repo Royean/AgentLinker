@@ -33,6 +33,8 @@ struct ConnectionView: View {
         .frame(width: 500, height: 600)
         .onAppear {
             setupConnectionHandler()
+            // 自动连接
+            autoConnect()
         }
         .alert("连接请求", isPresented: $showingRequestAlert, presenting: pendingRequest) { request in
             Button("拒绝", role: .cancel) {
@@ -208,6 +210,20 @@ struct ConnectionView: View {
             DispatchQueue.main.async {
                 self.pendingRequest = request
                 self.showingRequestAlert = true
+            }
+        }
+    }
+
+    private func autoConnect() {
+        // 如果未连接，自动连接
+        if !webSocketManager.isConnected {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                self.webSocketManager.connect(
+                    deviceId: self.deviceManager.deviceId,
+                    deviceName: self.deviceManager.deviceName,
+                    token: "ah_device_token_change_in_production",
+                    mode: .active
+                )
             }
         }
     }

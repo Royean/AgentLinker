@@ -43,7 +43,7 @@ class WebSocketManager: ObservableObject {
     private var currentMode: ConnectionMode = .active
     private var connectionRequestHandler: ((ConnectionRequest) -> Void)?
 
-    init(serverUrl: String = "ws://127.0.0.1:8080/ws/client") {
+    init(serverUrl: String = "ws://43.98.243.80:8080/ws/client") {
         self.serverUrl = serverUrl
     }
 
@@ -80,13 +80,18 @@ class WebSocketManager: ObservableObject {
 
         print("🔗 WebSocket task started")
 
+        // 立即发送注册消息
+        isConnected = true
+        switch mode {
+        case .active:
+            registerActive(deviceId: deviceId, deviceName: deviceName, token: token)
+        case .passive:
+            registerPassive(deviceId: deviceId, token: token)
+        }
+
         // 开始接收消息
         receiveMessage()
-
-        // 连接成功后发送注册消息
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.handleConnected()
-        }
+        startHeartbeat()
     }
 
     // MARK: - Passive Listening (Server Initiated)
@@ -518,7 +523,10 @@ class WebSocketManager: ObservableObject {
     }
 
     private func sendPing() {
-        guard isConnected else { return }
+        guard webSocketTask != nil else {
+            print("💓 Cannot send ping - no connection")
+            return
+        }
 
         let pingMessage: [String: Any] = [
             "type": "ping",
