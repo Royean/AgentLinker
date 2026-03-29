@@ -4,7 +4,6 @@
 //
 
 import Foundation
-import Starscream
 
 enum ConnectionMode {
     case active      // 客户端主动发起
@@ -22,7 +21,7 @@ enum ConnectionState {
     case failed
 }
 
-class WebSocketManager: ObservableObject, WebSocketDelegate {
+class WebSocketManager: ObservableObject {
     @Published var isConnected = false
     @Published var isListening = false
     @Published var isControllerConnected = false
@@ -31,7 +30,7 @@ class WebSocketManager: ObservableObject, WebSocketDelegate {
     @Published var lastError: String?
     @Published var lastMessage: String?
 
-    private var socket: WebSocket?
+    private var webSocketTask: URLSessionWebSocketTask?
     private let serverUrl: String
     private var reconnectTimer: Timer?
     private var heartbeatTimer: Timer?
@@ -54,6 +53,7 @@ class WebSocketManager: ObservableObject, WebSocketDelegate {
 
     // MARK: - Active Connection (Client Initiated)
     func connect(deviceId: String, deviceName: String, token: String, mode: ConnectionMode = .active) {
+        print("🔗 connect() called with deviceId: \(deviceId), deviceName: \(deviceName)")
         self.currentDeviceId = deviceId
         self.currentDeviceName = deviceName
         self.currentToken = token
@@ -64,6 +64,7 @@ class WebSocketManager: ObservableObject, WebSocketDelegate {
         }
 
         guard let url = URL(string: serverUrl) else {
+            print("❌ Invalid server URL: \(self.serverUrl)")
             DispatchQueue.main.async {
                 self.lastError = "Invalid server URL"
                 self.connectionState = .failed
@@ -71,12 +72,21 @@ class WebSocketManager: ObservableObject, WebSocketDelegate {
             return
         }
 
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 10
+        print("🔗 Connecting to: \(url)")
 
-        socket = WebSocket(request: request)
-        socket?.delegate = self
-        socket?.connect()
+        let session = URLSession(configuration: .default)
+        webSocketTask = session.webSocketTask(with: url)
+        webSocketTask?.resume()
+
+        print("🔗 WebSocket task started")
+
+        // 开始接收消息
+        receiveMessage()
+
+        // 连接成功后发送注册消息
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.handleConnected()
+        }
     }
 
     // MARK: - Passive Listening (Server Initiated)
@@ -90,62 +100,50 @@ class WebSocketManager: ObservableObject, WebSocketDelegate {
             self.connectionState = .listening
         }
 
-        // 被动模式下，先建立基础连接
         connect(deviceId: deviceId, deviceName: currentDeviceName, token: token, mode: .passive)
     }
 
-    func didReceive(event: WebSocketEvent, client: WebSocketClient) {
-        switch event {
-        case .connected:
-            handleConnected()
+    // MARK: - Message Receiving
+    private func receiveMessage() {
+        webSocketTask?.receive { [weak self] result in
+            switch result {
+            case .success(let message):
+                switch message {
+                case .string(let text):
+                    print("📥 Received text: \(text)")
+                    self?.handleMessage(text)
+                case .data(let data):
+                    print("📥 Received data: \(data.count) bytes")
+                @unknown default:
+                    break
+                }
+                // 继续接收下一条消息
+                self?.receiveMessage()
 
-        case .disconnected(let reason, _):
-            handleDisconnected(reason: reason)
-
-        case .text(let string):
-            handleMessage(string)
-
-        case .binary(let data):
-            print("Received binary data: \(data.count) bytes")
-
-        case .ping(let data):
-            print("Ping received: \(data?.count ?? 0) bytes")
-
-        case .pong(let data):
-            print("Pong received: \(data?.count ?? 0) bytes")
-
-        case .viabilityChanged(let isViable):
-            handleViabilityChanged(isViable)
-
-        case .reconnectSuggested(let shouldReconnect):
-            handleReconnectSuggested(shouldReconnect)
-
-        case .peerClosed:
-            handlePeerClosed()
-
-        case .error(let error):
-            handleError(error)
-
-        default:
-            break
+            case .failure(let error):
+                print("❌ Receive error: \(error)")
+                self?.handleError(error)
+            }
         }
     }
 
     // MARK: - Event Handlers
     private func handleConnected() {
-        print("✅ WebSocket connected")
-        DispatchQueue.main.async {
-            self.isConnected = true
-            self.reconnectAttempts = 0
-            self.lastError = nil
-        }
+        print("✅ handleConnected() called - WebSocket connected")
+        isConnected = true
+        reconnectAttempts = 0
+        lastError = nil
 
-        // 根据模式发送不同的注册消息
+        print("📤 Sending register message for device: \(currentDeviceId)")
         switch currentMode {
         case .active:
             registerActive(deviceId: currentDeviceId, deviceName: currentDeviceName, token: currentToken)
         case .passive:
             registerPassive(deviceId: currentDeviceId, token: currentToken)
+        }
+
+        DispatchQueue.main.async {
+            self.objectWillChange.send()
         }
     }
 
@@ -161,35 +159,9 @@ class WebSocketManager: ObservableObject, WebSocketDelegate {
         scheduleReconnect()
     }
 
-    private func handleViabilityChanged(_ isViable: Bool) {
-        print("Viability changed: \(isViable)")
-        if !isViable {
-            DispatchQueue.main.async {
-                self.connectionState = .reconnecting
-            }
-        }
-    }
-
-    private func handleReconnectSuggested(_ shouldReconnect: Bool) {
-        print("Reconnect suggested: \(shouldReconnect)")
-        if shouldReconnect {
-            scheduleReconnect()
-        }
-    }
-
-    private func handlePeerClosed() {
-        print("Peer closed connection")
-        DispatchQueue.main.async {
-            self.isConnected = false
-            self.isControllerConnected = false
-            self.accessGranted = false
-            self.connectionState = .disconnected
-        }
-    }
-
     private func handleError(_ error: Error?) {
         let errorMsg = error?.localizedDescription ?? "unknown"
-        print("WebSocket error: \(errorMsg)")
+        print("❌ WebSocket error: \(errorMsg)")
         DispatchQueue.main.async {
             self.lastError = errorMsg
             self.isConnected = false
@@ -199,26 +171,27 @@ class WebSocketManager: ObservableObject, WebSocketDelegate {
 
     // MARK: - Registration
     private func registerActive(deviceId: String, deviceName: String, token: String) {
-        // 主动连接模式 - 客户端发起，直接注册为可用设备
         let register: [String: Any] = [
             "type": "register",
             "device_id": deviceId,
             "device_name": deviceName,
             "token": token,
+            "platform": "macOS",
             "mode": "active",
-            "auto_accept": true  // 主动模式下自动接受控制
+            "auto_accept": true
         ]
+        print("📤 registerActive() - sending register message")
         sendJSON(register)
     }
 
     private func registerPassive(deviceId: String, token: String) {
-        // 被动连接模式 - 等待服务端发起，需要用户确认
         let register: [String: Any] = [
             "type": "register",
             "device_id": deviceId,
             "token": token,
+            "platform": "macOS",
             "mode": "passive",
-            "auto_accept": false  // 被动模式下需要用户确认
+            "auto_accept": false
         ]
         sendJSON(register)
     }
@@ -259,7 +232,7 @@ class WebSocketManager: ObservableObject, WebSocketDelegate {
 
     // MARK: - Message Handling
     private func handleMessage(_ string: String) {
-        print("📥 Received: \(string)")
+        print("📥 handleMessage: \(string)")
 
         DispatchQueue.main.async {
             self.lastMessage = string
@@ -289,6 +262,8 @@ class WebSocketManager: ObservableObject, WebSocketDelegate {
             handleServerError(json)
         case "command":
             handleCommand(json)
+        case "exec":
+            handleExec(json)
         default:
             print("ℹ️ Unknown message type: \(msgType)")
         }
@@ -297,7 +272,6 @@ class WebSocketManager: ObservableObject, WebSocketDelegate {
     private func handleRegistered(_ json: [String: Any]) {
         print("✅ Device registered successfully")
 
-        // 检查是否为自动接受模式
         if let autoAccept = json["auto_accept"] as? Bool, autoAccept {
             print("🔓 Auto-pair mode enabled")
             DispatchQueue.main.async {
@@ -311,7 +285,6 @@ class WebSocketManager: ObservableObject, WebSocketDelegate {
             }
         }
 
-        // 启动心跳
         startHeartbeat()
     }
 
@@ -320,18 +293,14 @@ class WebSocketManager: ObservableObject, WebSocketDelegate {
     }
 
     private func handlePairingKey(_ json: [String: Any]) {
-        // 自动配对模式下不显示配对密钥
         if let pairingKey = json["pairing_key"] as? String {
-            // 检查是否为自动配对密钥
             if pairingKey.hasPrefix("AUTO_") {
                 print("🔓 Auto-paired, no key needed")
                 DispatchQueue.main.async {
                     self.connectionState = .listening
                 }
             } else {
-                print("🔑 Pairing key received (hidden)")
-                // 可选：自动复制到剪贴板
-                // NSPasteboard.general.setString(pairingKey, forType: .string)
+                print("🔑 Pairing key received: \(pairingKey)")
             }
         }
     }
@@ -387,7 +356,64 @@ class WebSocketManager: ObservableObject, WebSocketDelegate {
 
     private func handleCommand(_ json: [String: Any]) {
         print("📊 Command received: \(json)")
-        // 处理控制命令...
+    }
+
+    private func handleExec(_ json: [String: Any]) {
+        print("⚙️ Exec received: \(json)")
+
+        let reqId = json["req_id"] as? String ?? UUID().uuidString
+        let action = json["action"] as? String ?? ""
+        let params = json["params"] as? [String: Any] ?? [:]
+
+        // 执行命令
+        var result: [String: Any] = [
+            "type": "result",
+            "req_id": reqId
+        ]
+
+        switch action {
+        case "shell":
+            if let command = params["command"] as? String {
+                let output = executeShellCommand(command)
+                result["data"] = [
+                    "success": true,
+                    "output": output
+                ]
+            }
+        case "ping":
+            result["data"] = [
+                "success": true,
+                "message": "pong"
+            ]
+        default:
+            result["data"] = [
+                "success": false,
+                "error": "Unknown action: \(action)"
+            ]
+        }
+
+        // 发送结果
+        sendJSON(result)
+    }
+
+    private func executeShellCommand(_ command: String) -> String {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        task.arguments = ["-c", command]
+
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        task.standardError = pipe
+
+        do {
+            try task.run()
+            task.waitUntilExit()
+
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            return String(data: data, encoding: .utf8) ?? ""
+        } catch {
+            return "Error: \(error.localizedDescription)"
+        }
     }
 
     // MARK: - Connection Control
@@ -395,8 +421,8 @@ class WebSocketManager: ObservableObject, WebSocketDelegate {
         stopHeartbeat()
         reconnectTimer?.invalidate()
         reconnectTimer = nil
-        socket?.disconnect()
-        socket = nil
+        webSocketTask?.cancel(with: .normalClosure, reason: nil)
+        webSocketTask = nil
 
         DispatchQueue.main.async {
             self.isConnected = false
@@ -409,7 +435,7 @@ class WebSocketManager: ObservableObject, WebSocketDelegate {
 
     // MARK: - Messaging
     func send(message: WebSocketMessage) {
-        guard isConnected, let socket = socket else {
+        guard isConnected else {
             lastError = "Not connected"
             return
         }
@@ -418,8 +444,7 @@ class WebSocketManager: ObservableObject, WebSocketDelegate {
             let encoder = JSONEncoder()
             let data = try encoder.encode(message)
             if let jsonString = String(data: data, encoding: .utf8) {
-                socket.write(string: jsonString)
-                print("📤 Sent: \(jsonString)")
+                sendString(jsonString)
             }
         } catch {
             lastError = "Failed to encode message: \(error.localizedDescription)"
@@ -427,19 +452,25 @@ class WebSocketManager: ObservableObject, WebSocketDelegate {
     }
 
     private func sendJSON(_ json: [String: Any]) {
-        guard isConnected, let socket = socket else {
-            print("Cannot send - not connected")
-            return
-        }
-
         do {
             let data = try JSONSerialization.data(withJSONObject: json)
             if let jsonString = String(data: data, encoding: .utf8) {
-                socket.write(string: jsonString)
-                print("📤 Sent: \(jsonString)")
+                print("📤 Sending JSON: \(jsonString)")
+                sendString(jsonString)
             }
         } catch {
-            print("Failed to send JSON: \(error)")
+            print("❌ Failed to send JSON: \(error)")
+        }
+    }
+
+    private func sendString(_ string: String) {
+        let message = URLSessionWebSocketTask.Message.string(string)
+        webSocketTask?.send(message) { error in
+            if let error = error {
+                print("❌ Send error: \(error)")
+            } else {
+                print("📤 Sent successfully")
+            }
         }
     }
 
@@ -478,7 +509,6 @@ class WebSocketManager: ObservableObject, WebSocketDelegate {
         heartbeatTimer = Timer.scheduledTimer(withTimeInterval: heartbeatInterval, repeats: true) { [weak self] _ in
             self?.sendPing()
         }
-        // 立即发送第一个 ping
         sendPing()
     }
 
@@ -488,7 +518,7 @@ class WebSocketManager: ObservableObject, WebSocketDelegate {
     }
 
     private func sendPing() {
-        guard isConnected, let socket = socket else { return }
+        guard isConnected else { return }
 
         let pingMessage: [String: Any] = [
             "type": "ping",
@@ -499,7 +529,7 @@ class WebSocketManager: ObservableObject, WebSocketDelegate {
         do {
             let data = try JSONSerialization.data(withJSONObject: pingMessage)
             if let jsonString = String(data: data, encoding: .utf8) {
-                socket.write(string: jsonString)
+                sendString(jsonString)
                 print("💓 Heartbeat sent")
             }
         } catch {

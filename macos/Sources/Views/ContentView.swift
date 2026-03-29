@@ -8,30 +8,29 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject var deviceManager: DeviceManager
     @EnvironmentObject var webSocketManager: WebSocketManager
-    @EnvironmentObject var authManager: AuthManager
     @State private var showingSettings = false
     @State private var showingDeviceList = false
-    
+
     var body: some View {
         VStack(spacing: 0) {
             // Header
             headerView
                 .padding()
-            
+
             Divider()
-            
+
             // Main Content
             ScrollView {
                 VStack(spacing: 24) {
                     // Status Card
                     statusCard
-                    
+
                     // Device Info Card
                     deviceInfoCard
-                    
+
                     // Pairing Card
                     pairingCard
-                    
+
                     // Quick Actions
                     quickActions
                 }
@@ -44,16 +43,14 @@ struct ContentView: View {
             SettingsView()
                 .environmentObject(deviceManager)
                 .environmentObject(webSocketManager)
-                .environmentObject(authManager)
         }
         .sheet(isPresented: $showingDeviceList) {
             DeviceListView()
                 .environmentObject(deviceManager)
                 .environmentObject(webSocketManager)
-                .environmentObject(authManager)
         }
     }
-    
+
     // MARK: - Header
     private var headerView: some View {
         HStack {
@@ -67,49 +64,42 @@ struct ContentView: View {
                             endPoint: .bottomTrailing
                         )
                     )
-                
+
                 VStack(alignment: .leading, spacing: 4) {
                     Text("AgentLinker")
                         .font(.title2)
                         .fontWeight(.bold)
-                    
+
                     HStack(spacing: 6) {
                         Circle()
                             .fill(webSocketManager.isConnected ? Color.green : Color.orange)
                             .frame(width: 8, height: 8)
-                        
+
                         Text(webSocketManager.isConnected ? "Connected" : "Connecting...")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
                 }
             }
-            
+
             Spacer()
-            
+
             HStack(spacing: 8) {
                 Button(action: { showingDeviceList = true }) {
                     Label("Devices", systemImage: "list.bullet")
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                
+
                 Button(action: { showingSettings = true }) {
                     Image(systemName: "gearshape")
                         .font(.title3)
                 }
                 .buttonStyle(.plain)
-                
-                Button(action: handleLogout) {
-                    Image(systemName: "rectangle.portrait.and.arrow.right")
-                        .font(.title3)
-                }
-                .buttonStyle(.plain)
-                .help("Logout")
             }
         }
     }
-    
+
     // MARK: - Status Card
     private var statusCard: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -119,7 +109,7 @@ struct ContentView: View {
                 Text("Device Status")
                     .font(.headline)
             }
-            
+
             HStack(spacing: 12) {
                 StatusIndicator(
                     title: "Connection",
@@ -149,7 +139,7 @@ struct ContentView: View {
                 .fill(Color(NSColor.controlBackgroundColor))
         )
     }
-    
+
     // MARK: - Device Info Card
     private var deviceInfoCard: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -159,7 +149,7 @@ struct ContentView: View {
                 Text("Device Information")
                     .font(.headline)
             }
-            
+
             VStack(alignment: .leading, spacing: 12) {
                 InfoRow(label: "Device Name", value: deviceManager.deviceName)
                 InfoRow(label: "Device ID", value: deviceManager.deviceId, isMonospace: true)
@@ -173,7 +163,7 @@ struct ContentView: View {
                 .fill(Color(NSColor.controlBackgroundColor))
         )
     }
-    
+
     // MARK: - Pairing Card
     private var pairingCard: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -183,29 +173,29 @@ struct ContentView: View {
                 Text("Pairing")
                     .font(.headline)
             }
-            
+
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Text("Pairing Key:")
                         .foregroundColor(.secondary)
-                    
+
                     Spacer()
-                    
+
                     Text(deviceManager.pairingKey)
                         .font(.system(.body, design: .monospaced))
                         .fontWeight(.semibold)
                         .foregroundColor(.accentColor)
                 }
-                
+
                 HStack(spacing: 12) {
                     Button(action: {
-                        deviceManager.copyPairingKey()
+                        _ = deviceManager.copyPairingKey()
                     }) {
                         Label("Copy Key", systemImage: "doc.on.doc")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
-                    
+
                     Button(action: {
                         deviceManager.refreshPairingKey()
                     }) {
@@ -222,22 +212,22 @@ struct ContentView: View {
                 .fill(Color(NSColor.controlBackgroundColor))
         )
     }
-    
+
     // MARK: - Quick Actions
     private var quickActions: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Quick Actions")
                 .font(.headline)
-            
+
             HStack(spacing: 12) {
                 ActionButton(title: "Copy Device ID", icon: "doc.on.clipboard") {
-                    deviceManager.copyDeviceId()
+                    _ = deviceManager.copyDeviceId()
                 }
-                
+
                 ActionButton(title: "Test Connection", icon: "antenna.radiowaves.left.and.right") {
                     // Test connection logic
                 }
-                
+
                 ActionButton(title: "View Logs", icon: "list.bullet") {
                     // View logs
                 }
@@ -248,12 +238,6 @@ struct ContentView: View {
             RoundedRectangle(cornerRadius: 12)
                 .fill(Color(NSColor.controlBackgroundColor))
         )
-    }
-    
-    // MARK: - Actions
-    private func handleLogout() {
-        webSocketManager.disconnect()
-        authManager.logout()
     }
 }
 
@@ -289,18 +273,18 @@ struct InfoRow: View {
     let label: String
     let value: String
     var isMonospace: Bool = false
-    
+
     var body: some View {
         HStack {
             Text(label)
                 .foregroundColor(.secondary)
                 .frame(width: 100, alignment: .leading)
-            
+
             Text(value)
                 .font(isMonospace ? .system(.body, design: .monospaced) : .body)
                 .fontWeight(isMonospace ? .medium : .regular)
                 .lineLimit(1)
-            
+
             Spacer()
         }
     }
@@ -310,7 +294,7 @@ struct ActionButton: View {
     let title: String
     let icon: String
     let action: () -> Void
-    
+
     var body: some View {
         Button(action: action) {
             VStack(spacing: 8) {
@@ -330,5 +314,4 @@ struct ActionButton: View {
     ContentView()
         .environmentObject(DeviceManager())
         .environmentObject(WebSocketManager())
-        .environmentObject(AuthManager())
 }

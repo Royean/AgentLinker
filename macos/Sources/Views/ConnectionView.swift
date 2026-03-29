@@ -8,7 +8,6 @@ import SwiftUI
 struct ConnectionView: View {
     @EnvironmentObject var deviceManager: DeviceManager
     @EnvironmentObject var webSocketManager: WebSocketManager
-    @EnvironmentObject var authManager: AuthManager
     @State private var showingRequestAlert = false
     @State private var pendingRequest: ConnectionRequest?
 
@@ -73,13 +72,6 @@ struct ConnectionView: View {
             }
 
             Spacer()
-
-            Button(action: { authManager.logout() }) {
-                Image(systemName: "rectangle.portrait.and.arrow.right")
-                    .font(.title3)
-            }
-            .buttonStyle(.plain)
-            .help("退出登录")
         }
     }
 
@@ -201,7 +193,6 @@ struct ConnectionView: View {
             VStack(alignment: .leading, spacing: 12) {
                 InfoRow(label: "设备名称", value: deviceManager.deviceName)
                 InfoRow(label: "设备 ID", value: deviceManager.deviceId, isMonospace: true)
-                InfoRow(label: "用户", value: authManager.currentUser?.name ?? "Unknown")
             }
         }
         .padding()
@@ -280,5 +271,4 @@ struct ConnectionOptionCard: View {
     ConnectionView()
         .environmentObject(DeviceManager())
         .environmentObject(WebSocketManager())
-        .environmentObject(AuthManager())
 }
